@@ -1,0 +1,1 @@
+# Weakly Supervised Pre-Training for Multi-Instance Learning on Whole Slide Pathological Image

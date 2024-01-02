@@ -30,6 +30,7 @@ import multiprocessing as mp
 from tqdm import tqdm
 import random
 from PIL import ImageFilter
+from timm.models.vision_transformer import VisionTransformer
 # import multiprocess
 # CUDA_VISIBLE_DEVICES=3,5,6,7 torchrun --standalone --nproc_per_node=4 --master_port 29500 source /root/miniconda/bin/activate simmil /remote-home/kongyijian/GraphMIL/backbone_check/main.py --log_dir /remote-home/share/GraphMIL/backbone_check/debug/ablation_final/C16/moco_aug_mlp_sce --loss sce --epochs 100 --resume /remote-home/share/GraphMIL/backbone_check/debug/ablation_final/C16/moco_aug_mlp_sce/checkpoint_0008.pth  --dataset C16 --bag_label_dir /remote-home/kongyijian/MIL/SimMIL/data/C16 --schedule 60 80 &
 
@@ -208,7 +209,7 @@ class LinClsRunner(BaseRunner):
             if self.args.imgnet_pretrained:
                 self.logger.info("=> using imagenet pretrained model")
             # model = models.__dict__[self.args.arch](weights=self.args.imgnet_pretrained)
-            model = models.resnet18(pretrained=None) # 2080Ti用pretrained, 其余用weights
+            model = models.resnet18(weights=None) # 2080Ti用pretrained, 其余用weights
             # freeze all layers but the last fc
             if self.args.no_fixed_trunk:
                 self.logger.info("=> not fixing trunks")
@@ -220,6 +221,35 @@ class LinClsRunner(BaseRunner):
             # init the fc layer
             in_features = model.fc.in_features
             hidden_size = 128
+            if self.args.arch == 'HIPT':
+                model.head = nn.Sequential(nn.Linear(in_features, hidden_size), nn.BatchNorm1d(hidden_size) # mlp
+                                     ,nn.ReLU(inplace=True), nn.Linear(hidden_size, self.args.class_num))
+            else:
+                model.fc = nn.Sequential(nn.Linear(in_features, hidden_size), nn.BatchNorm1d(hidden_size) # mlp
+                                     ,nn.ReLU(inplace=True), nn.Linear(hidden_size, self.args.class_num))
+                # model.fc = nn.Linear(in_features, 2)
+            for module in model.fc.modules():
+                if isinstance(module, nn.Linear):
+                    nn.init.normal_(module.weight, 0, 0.01)
+                    nn.init.constant_(module.bias, 0)
+
+        elif self.args.arch == 'resnet50':
+            self.logger.info("=> creating model '{}'".format(self.args.arch))
+            if self.args.imgnet_pretrained:
+                self.logger.info("=> using imagenet pretrained model")
+            # model = models.__dict__[self.args.arch](weights=self.args.imgnet_pretrained)
+            model = models.resnet50(weights=None) # 2080Ti用pretrained, 其余用weights
+            # freeze all layers but the last fc
+            if self.args.no_fixed_trunk:
+                self.logger.info("=> not fixing trunks")
+                pass
+            else:
+                for name, param in model.named_parameters():
+                    if name not in ['fc.weight', 'fc.bias']:
+                        param.requires_grad = False
+            # init the fc layer
+            in_features = model.fc.in_features
+            hidden_size = 512
             # model.fc = torch.nn.Linear(in_features, self.args.class_num)
             # model.fc.weight.data.normal_(mean=0.0, std=0.01)
             # model.fc.bias.data.zero_()
@@ -231,6 +261,19 @@ class LinClsRunner(BaseRunner):
                                      ,nn.ReLU(inplace=True), nn.Linear(hidden_size, self.args.class_num))
                 # model.fc = nn.Linear(in_features, 2)
             for module in model.fc.modules():
+                if isinstance(module, nn.Linear):
+                    nn.init.normal_(module.weight, 0, 0.01)
+                    nn.init.constant_(module.bias, 0)
+
+        elif self.args.arch == 'ViT/S':
+            self.logger.info("=> creating model '{}'".format(self.args.arch))
+            model = VisionTransformer(img_size=224, patch_size=16, embed_dim=384, num_heads=6, num_classes=2)
+            in_features = model.head.in_features
+            hidden_size = 128
+            model.head = nn.Sequential(nn.Linear(in_features, hidden_size), nn.BatchNorm1d(hidden_size) # mlp
+                                     ,nn.ReLU(inplace=True), nn.Linear(hidden_size, self.args.class_num))
+            # model.head = nn.Linear(in_features, 2)
+            for module in model.head.modules():
                 if isinstance(module, nn.Linear):
                     nn.init.normal_(module.weight, 0, 0.01)
                     nn.init.constant_(module.bias, 0)

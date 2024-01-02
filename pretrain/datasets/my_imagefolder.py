@@ -1,10 +1,12 @@
 import imageio.v2 as imageio
 from torchvision.datasets.folder import ImageFolder
 from PIL import Image
+from PIL import ImageFile
 import torch
 import numpy as np
 import pandas as pd
-
+import os
+# ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 class MyImageFolder(ImageFolder):
     
@@ -14,21 +16,18 @@ class MyImageFolder(ImageFolder):
 
     def my_loader(self, path):
         img = imageio.imread(path)
+            # print(path)
         img = Image.fromarray(img)
-        
         return img.convert('RGB')
 
 
     def __getitem__(self, index):
         path, target = self.samples[index]
-        sample = self.my_loader(path) # 3 x 8192 x 8192
+        sample = self.my_loader(path) 
         
         if self.transform is not None:
             sample = self.transform(sample)
         
-        # if sample.shape[1] == 8192: 
-        #     sample = sample.unfold(2, 256, 256).unfold(3, 256, 256) # 3 x 32 x 32 x 256 x256
-        #     sample = sample.reshape(-1, 3, 256, 256) # 1024 x 3 x 256 x 256
         if self.target_transform is not None:
             target = self.target_transform(target)
         

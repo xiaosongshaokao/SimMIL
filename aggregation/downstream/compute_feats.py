@@ -12,6 +12,8 @@ import sys, argparse, os, glob, copy
 import pandas as pd
 import numpy as np
 from PIL import Image
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 from collections import OrderedDict
 from sklearn.utils import shuffle
 
@@ -44,8 +46,11 @@ import json
 from torchvision.models import resnet50
 from byol_pytorch.byol_pytorch_get_feature import BYOL
 from benchmark_res50 import R50
+from benckmark_ViTS import ViT_S
 from torch.utils.data import Dataset
 import os
+
+
 class BagDataset():
     def __init__(self, csv_file, transform=None):
         self.files_list = csv_file
@@ -147,42 +152,25 @@ def compute_feats(args, bags_list, i_classifier, save_path=None, magnification='
     bag_len = []
     for i in range(0, num_bags):
         feats_list = []
-        # if magnification=='single' or magnification=='low':
-        #     csv_file_path = glob.glob(os.path.join(bags_list[i], '*.jpg')) + glob.glob(os.path.join(bags_list[i], '*.jpeg'))
-        # elif magnification=='high':
-        #     csv_file_path = glob.glob(os.path.join(bags_list[i], '*'+os.sep+'*.jpg')) + glob.glob(os.path.join(bags_list[i], '*'+os.sep+'*.jpeg'))
         WSI_path = bags_list[i]
         print('\n',WSI_path)
-        if 'Camelyon' in  args.dataset:
+        if 'Camelyon' in args.dataset:
             split = WSI_path.split('/')[-2].split('_')[0]
             WSI_name = WSI_path.split('/')[-1].split('.')[0]
+            print(WSI_name)
             if args.mag == 20:
-                # csv_file_path =  glob.glob(os.path.join('patches', split, '*', WSI_name,'*.png')) # my preprocess of 20x tcga  exludes HE/NOR patches OMG！
-                # csv_file_path =  glob.glob(os.path.join('patches', split, 'neg_256_20X_Nor', WSI_name,'*.png')) + glob.glob(os.path.join('patches', split, 'nontumor_256_20X_Nor', WSI_name,'*.png')) + glob.glob(os.path.join('patches', split, 'tumor_256_20X_Nor', WSI_name,'*.png'))
-                
-                csv_file_path =  glob.glob(os.path.join('patches', split, 'neg_256_20X', WSI_name,'*.png')) + glob.glob(os.path.join('patches', split, 'nontumor_256_20X', WSI_name,'*.png')) + glob.glob(os.path.join('patches', split, 'tumor_256_20X', WSI_name,'*.png'))
-                # csv_file_path =  glob.glob(os.path.join('patches', 'train', 'neg_256_20X_Nor', WSI_name,'*.png')) + glob.glob(os.path.join('patches', 'train', 'nontumor_256_20X_Nor', WSI_name,'*.png')) + glob.glob(os.path.join('patches', 'train', 'tumor_256_20X_Nor', WSI_name,'*.png'))
-                # csv_file_path =  glob.glob(os.path.join('patches', 'test', 'neg_256_20X_Nor', WSI_name,'*.png')) + glob.glob(os.path.join('patches', 'test', 'nontumor_256_20X_Nor', WSI_name,'*.png')) + glob.glob(os.path.join('patches', 'test', 'tumor_256_20X_Nor', WSI_name,'*.png')) 
-                # csv_file_path =  glob.glob(os.path.join( 'WSI/Camelyon16/single','*',WSI_name,'*.jpeg')) #rubbish default
-            elif args.mag == 5:
-                csv_file_path =  glob.glob(os.path.join('patches_5x', split, '*', WSI_name,'*.png')) # my preprocess of 5x tcga
+                csv_file_path =  glob.glob(os.path.join('/remote-home/share/DATA/CAMELYON16/DATA', split, 'neg_256_20X', WSI_name,'*.png')) + glob.glob(os.path.join('/remote-home/share/DATA/CAMELYON16/DATA', split, 'nontumor_256_20X', WSI_name,'*.png')) + glob.glob(os.path.join('/remote-home/share/DATA/CAMELYON16/DATA', split, 'tumor_256_20X', WSI_name,'*.png'))
+                # print('1', csv_file_path)
+            # elif args.mag == 5:
+            #     csv_file_path =  glob.glob(os.path.join('patches_5x', split, '*', WSI_name,'*.png')) # my preprocess of 5x tcga
         elif 'tcga' in  args.dataset and (magnification=='single' or magnification=='low'):
-            csv_file_path = glob.glob(os.path.join('WSI',bags_list[i], '*.jpg')) + glob.glob(os.path.join('WSI',bags_list[i], '*.jpeg'))
+            csv_file_path = glob.glob(os.path.join('/remote-home/share/promptMIL/datasets',bags_list[i], '*.jpg')) + glob.glob(os.path.join('/remote-home/share/promptMIL/datasets',bags_list[i], '*.jpeg'))
         elif 'tcga' in  args.dataset and magnification=='high':
-            csv_file_path = glob.glob(os.path.join('WSI',bags_list[i], '*'+os.sep+'*.jpg')) + glob.glob(os.path.join('WSI',bags_list[i], '*'+os.sep+'*.jpeg'))
+            csv_file_path = glob.glob(os.path.join('/remote-home/share/promptMIL/datasets',bags_list[i], '*'+os.sep+'*.jpg')) + glob.glob(os.path.join('/remote-home/share/promptMIL/datasets',bags_list[i], '*'+os.sep+'*.jpeg'))
         elif 'brca' in args.dataset:
             WSI_name = WSI_path.split('.')[0]
             csv_file_path = glob.glob(os.path.join('/remote-home/share/songyicheng/brca_dataset/', WSI_name ,'*.png'))
-        elif '10p_C' in args.dataset:
-            split = WSI_path.split('/')[-2].split('_')[0]
-            WSI_name = WSI_path.split('/')[-1].split('.')[0]
-            if args.mag == 20:
-                csv_file_path =  glob.glob(os.path.join('patches', split, 'neg_256_20X', WSI_name,'*.png')) + glob.glob(os.path.join('patches', split, 'nontumor_256_20X', WSI_name,'*.png')) + glob.glob(os.path.join('patches', split, 'tumor_256_20X', WSI_name,'*.png'))
-        elif '10p_T' in args.dataset:
-            csv_file_path = glob.glob(os.path.join('WSI',bags_list[i], '*'+os.sep+'*.jpg')) + glob.glob(os.path.join('WSI',bags_list[i], '*'+os.sep+'*.jpeg'))
-        elif '10p_B' in args.dataset:
-            WSI_name = WSI_path.split('.')[0]
-            csv_file_path = glob.glob(os.path.join('/remote-home/share/songyicheng/brca_dataset/', WSI_name ,'*.png'))
+        # print(csv_file_path)
         bag_len.append(len(csv_file_path))
 
         if args.backbone == 'vit_small' or args.backbone == 'ctranspath':
@@ -191,18 +179,16 @@ def compute_feats(args, bags_list, i_classifier, save_path=None, magnification='
                 for iteration, batch in enumerate(dataloader):
                     patches = batch['input'].float().cuda() 
                     feats = i_classifier(patches)
-                    feats = feats.cpu().numpy()
+                    feats = feats.cpu()
                     feats_list.extend(feats)
                     sys.stdout.write('\r Computed: {}/{} -- {}/{}'.format(i+1, num_bags, iteration+1, len(dataloader)))
         elif args.backbone == 'transpath':
             dataloader, bag_size = Norbag_dataset_256(args, csv_file_path)
-            # dataloader, bag_size = Norbag_dataset(args, csv_file_path)
             with torch.no_grad():
                 for iteration, batch in enumerate(dataloader):
-                    patches = batch['input'].float().cuda() 
-                    # feats = i_classifier(patches)
+                    patches = batch['input'].float().cuda()
                     _, feats = i_classifier(patches,return_embedding = True)
-                    feats = feats.cpu().numpy()
+                    feats = feats.cpu()
                     feats_list.extend(feats)
                     sys.stdout.write('\r Computed: {}/{} -- {}/{}'.format(i+1, num_bags, iteration+1, len(dataloader)))
         elif args.backbone == 'clip':
@@ -211,42 +197,52 @@ def compute_feats(args, bags_list, i_classifier, save_path=None, magnification='
                 for iteration, batch in enumerate(dataloader):
                     patches = batch['input'].float().cuda() 
                     feats = i_classifier.encode_image(patches)
-                    feats = feats.cpu().numpy()
+                    feats = feats.cpu()
                     feats_list.extend(feats)
                     sys.stdout.write('\r Computed: {}/{} -- {}/{}'.format(i+1, num_bags, iteration+1, len(dataloader)))
-        elif args.backbone == 'resnetTrunk':
+        elif args.backbone == 'resnetTrunk' or args.backbone == 'ViT/S':
             dataloader, bag_size = Norbag_dataset(args, csv_file_path)
             with torch.no_grad():
                 for iteration, batch in enumerate(dataloader):
                     patches = batch['input'].float().cuda() 
                     feats = i_classifier(patches)
-                    feats = feats.cpu().numpy()
+                    feats = feats.cpu()
                     feats_list.extend(feats)
                     sys.stdout.write('\r Computed: {}/{} -- {}/{}'.format(i+1, num_bags, iteration+1, len(dataloader)))
         else:
             dataloader, bag_size = Norbag_dataset(args, csv_file_path)
-            # dataloader, bag_size = MoCobag_dataset(args, csv_file_path)
             with torch.no_grad():
                 for iteration, batch in enumerate(dataloader):
                     patches = batch['input'].float().cuda() 
                     feats, classes = i_classifier(patches)
-                    feats = feats.cpu().numpy()
+                    feats = feats.cpu()
                     feats_list.extend(feats)
                     sys.stdout.write('\r Computed: {}/{} -- {}/{}'.format(i+1, num_bags, iteration+1, len(dataloader)))
         if len(feats_list) == 0:
             print('No valid patch extracted from: ' + bags_list[i])
         else:
-            df = pd.DataFrame(feats_list)
+            # df = pd.DataFrame(feats_list)
+            # 将特征列表合并成一个张量
+            # print(feats_list.shape)
+            # print(torch.stack(feats_list).shape)
+            # print(torch.cat(feats_list, dim=0).shape)
+            feats_tensor = torch.stack(feats_list).numpy()
+
+            # 保存为.pt格式，保持和.csv中相同的数字精度
+            # torch.save(feats_tensor.round(decimals=4), os.path.join(save_path, split, bags_list[i].split(os.path.sep)[-1] + '.pt'))
             
-            if 'Camelyon' in  args.dataset or '10p_C' in args.dataset:
+            if 'Camelyon' in  args.dataset:
                 os.makedirs(os.path.join(save_path, split), exist_ok=True)
-                df.to_csv(os.path.join(save_path, split, bags_list[i].split(os.path.sep)[-1]+'.csv'), index=False, float_format='%.4f')
-            elif 'tcga' in  args.dataset or '10p_T' in args.dataset:
+                torch.save(torch.from_numpy(feats_tensor.round(decimals=4)), os.path.join(save_path, split, bags_list[i].split(os.path.sep)[-1].split('.')[0] + '.pt'))
+                # df.to_csv(os.path.join(save_path, split, bags_list[i].split(os.path.sep)[-1]+'.csv'), index=False, float_format='%.4f')
+            elif 'tcga' in  args.dataset:
                 os.makedirs(os.path.join(save_path, bags_list[i].split(os.path.sep)[-2]), exist_ok=True)
-                df.to_csv(os.path.join(save_path, bags_list[i].split(os.path.sep)[-2], bags_list[i].split(os.path.sep)[-1]+'.csv'), index=False, float_format='%.4f')
-            elif 'brca' in args.dataset or '10p_B' in args.dataset:
+                torch.save(torch.from_numpy(feats_tensor.round(decimals=4)), os.path.join(save_path, bags_list[i].split(os.path.sep)[-2], bags_list[i].split(os.path.sep)[-1]+'.pt'))
+                # df.to_csv(os.path.join(save_path, bags_list[i].split(os.path.sep)[-2], bags_list[i].split(os.path.sep)[-1]+'.csv'), index=False, float_format='%.4f')
+            elif 'brca' in args.dataset:
                 os.makedirs(os.path.join(save_path, 'brca_dataset'), exist_ok=True)
-                df.to_csv(os.path.join(save_path, 'brca_dataset', WSI_name + '.csv'), index=False, float_format='%.4f')
+                torch.save(torch.from_numpy(feats_tensor.round(decimals=4)), os.path.join(save_path, 'brca_dataset', WSI_name + '.pt'))
+                # df.to_csv(os.path.join(save_path, 'brca_dataset', WSI_name + '.csv'), index=False, float_format='%.4f')
             
             print('\n')    
 
@@ -317,10 +313,9 @@ def main():
     parser.add_argument('-a', '--arch', metavar='ARCH', default='vit_small',
                     help='model architecture: '
                          ' (default: vit_small)')
-    parser.add_argument('--weight_path', default='TCGA-lung-single', type=str, help='weight path')
+    parser.add_argument('--weight_path', default=None, type=str, help='weight path')
+    parser.add_argument('--key', default='MoCoV2', type=str, help='key used for resnet50 benchmarks')
     args = parser.parse_args()
-    # gpu_ids = tuple(args.gpu_index) pretrained_weights/imagenet_r18.pth
-    # os.environ['CUDA_VISIBLE_DEVICES']=','.join(str(x) for x in gpu_ids)
 
     if args.norm_layer == 'instance':
         norm=nn.InstanceNorm2d
@@ -348,37 +343,22 @@ def main():
         model.head = nn.Identity()
         num_feats = 768
     elif args.backbone == 'clip':
-        model, preprocess = clip.load("RN50") # MoCoV2 SwAV
+        model, preprocess = clip.load("RN50")
         num_feats = 1024
     elif args.backbone == 'resnetTrunk':
-        model = R50(pretrained=True, progress=False, key='MoCoV2')
+        model = R50(pretrained=True, progress=False, key=args.key) # MoCoV2 SwAV
         num_feats = 1024
-    elif args.backbone == 'transpath':
-        model = BYOL(
-            image_size=256,
-            hidden_layer='to_latent'
-        )
-        pretext_model = torch.load(r'pretrained_weights/checkpoint_transpath.pth')
-        model = nn.DataParallel(model).cuda()
-        model.load_state_dict(pretext_model, strict=True)
-
-        model.module.online_encoder.net.head = nn.Identity()
-
-        model.eval()
+    elif args.backbone == 'ViT/S':
+        model = ViT_S(pretrained=True, progress=False, key=args.key, patch_size=16)
+        num_feats = 384
     # else:
     resnet = 0
     if args.backbone == 'resnet18':
         resnet = models.resnet18(pretrained=pretrain, norm_layer=norm)
         num_feats = 512
-    # if args.backbone == 'sslp3':
-    #     resnet = models.resnet18(pretrained=pretrain, norm_layer=norm)
-    #     num_feats = 512
     elif args.backbone == 'resnet50':
         resnet = models.resnet50(pretrained=pretrain, norm_layer=norm)
         num_feats = 2048
-    # if args.backbone == 'resnet101':
-    #     resnet = models.resnet101(pretrained=pretrain, norm_layer=norm)
-    #     num_feats = 2048
     if resnet:
         for param in resnet.parameters():
             param.requires_grad = False
@@ -426,17 +406,17 @@ def main():
 
 
     elif args.magnification == 'single' or args.magnification == 'high' or args.magnification == 'low':  
-        if args.backbone == 'vit_small' or args.backbone == 'ctranspath' or args.backbone == 'transpath':
+        if args.backbone == 'vit_small' or args.backbone == 'ctranspath' or args.backbone == 'transpath' or (args.backbone == 'ViT/S' and args.weight_path):
             weight_path = args.weight_path
             td = torch.load(weight_path)
-            
+            model.head = nn.Identity()
             msg = model.load_state_dict(td['state_dict'], strict=True)
             i_classifier = nn.DataParallel(model).cuda()
             print(msg)
             print('Use pretrained features from: ', weight_path)
-        elif args.backbone == 'clip' or args.backbone == 'resnetTrunk':
+        elif args.backbone == 'clip' or args.backbone == 'resnetTrunk' or args.backbone == 'ViT/S':
             i_classifier = model.cuda()
-            print('Use pretraind features from clip or resnetTrunk')
+            print('Use pretraind features from clip or resnetTrunk or ViT/S')
         else:
             i_classifier = mil.IClassifier(resnet, num_feats, output_class=args.num_classes).cuda()
 
@@ -469,60 +449,22 @@ def main():
                 # torch.save(new_state_dict, os.path.join('embedder', args.dataset, 'embedder.pth'))
                 print('Use pretrained features from: ', weight_path)    
     
-    # if args.magnification == 'tree' or args.magnification == 'low' or args.magnification == 'high' :
-    #     bags_path = os.path.join('WSI', args.dataset, 'pyramid', '*', '*')
-    # else:
-        # bags_path = os.path.join('WSI', args.dataset, 'single', '*', '*')
+
     if 'Camelyon' in  args.dataset:
-        bags_path = os.path.join('WSI','Camelyon16', '*', '*')
-        bags_list = glob.glob(bags_path)
+        # bags_path = os.path.join('WSI','Camelyon16', '*', '*')
+        # bags_list = glob.glob(bags_path)
+        bags_list = glob.glob(os.path.join('/remote-home/share/DATA/CAMELYON16/train_tumor', '*')) \
+        + glob.glob(os.path.join('/remote-home/share/DATA/CAMELYON16/train_normal' , '*')) \
+        + glob.glob(os.path.join('/remote-home/share/DATA/CAMELYON16/test_tumor' , '*')) \
+        + glob.glob(os.path.join('/remote-home/share/DATA/CAMELYON16/test_normal' , '*'))
     elif 'brca' in args.dataset:
         bags_path = pd.read_csv('/remote-home/share/songyicheng/brca_dataset/BRCA.csv')
         bags_list = bags_path.iloc[:,0].tolist()
-    elif '10p_C' in args.dataset:
-        bags_path = os.path.join('WSI','Camelyon16', '*', '*')
-        bags_list_full = glob.glob(bags_path)
-        bags_list = []
-        with open('/remote-home/share/songyicheng/10p_datasets/10p_C16.txt') as f:
-            img_list = f.readlines()
-            for bag in bags_list_full:
-                name = bag.split('/')[-1].split('.')[0]
-                for img in img_list:
-                    if name in img:
-                        bags_list.append(bag)
-                    else:
-                        continue
-    elif '10p_T' in args.dataset:
-        bags_path = pd.read_csv('datasets/tcga-dataset/TCGA.csv')
-        bags_list_full = bags_path.iloc[:,0].tolist()
-        bags_list = []
-        with open('/remote-home/share/songyicheng/10p_datasets/10p_TCGA.txt') as f:
-            img_list = f.readlines()
-            for bag in bags_list_full:
-                name = bag.split('/')[-1]
-                for img in img_list:
-                    if name in img:
-                        bags_list.append(bag)
-                    else:
-                        continue
-    elif '10p_B' in args.dataset:
-        bags_path = pd.read_csv('/remote-home/share/songyicheng/brca_dataset/BRCA.csv')
-        bags_list_full = bags_path.iloc[:,0].tolist()
-        bags_list = []
-        with open('/remote-home/share/songyicheng/10p_datasets/10p_BRCA.txt') as f:
-            img_list = f.readlines()
-            for bag in bags_list_full:
-                name = bag.split('.')[0]
-                for img in img_list:
-                    if name in img:
-                        bags_list.append(bag)
-                    else:
-                        continue
     else:
-        bags_path = pd.read_csv('datasets/tcga-dataset/TCGA.csv')
+        bags_path = pd.read_csv('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets/tcga-dataset/TCGA.csv')
         bags_list = bags_path.iloc[:,0].tolist()
 
-    feats_path = os.path.join('datasets', args.dataset)
+    feats_path = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets', args.dataset)
         
     os.makedirs(feats_path, exist_ok=True)
     
@@ -531,76 +473,42 @@ def main():
         compute_tree_feats(args, bags_list, i_classifier_l, i_classifier_h, feats_path, 'cat')
     else:
         compute_feats(args, bags_list, i_classifier, feats_path, args.magnification)
-    n_classes = glob.glob(os.path.join('datasets', args.dataset, '*'+os.path.sep))
+    n_classes = glob.glob(os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets', args.dataset, '*'+os.path.sep))
     n_classes = sorted(n_classes)
     all_df = []
     if 'Camelyon' in  args.dataset:
-        bags_csv='datasets/Camelyon16/Camelyon16.csv'
+        bags_csv='/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets/Camelyon16/Camelyon16.csv'
         df = pd.read_csv(bags_csv)
         ref_label = {}
         for idx in range(len(df)):
-            name = df.loc[idx][0].split('/')[-1].split('.')[0] +'.csv'
+            name = df.loc[idx][0].split('/')[-1].split('.')[0] +'.pt'
             label= df.loc[idx][1]
             ref_label[name] = label
         for i, item in enumerate(n_classes):
-            bag_csvs = glob.glob(os.path.join(item, '*.csv'))
+            bag_csvs = glob.glob(os.path.join(item, '*.pt'))
             bag_df = pd.DataFrame(bag_csvs)
             bag_df['label'] = i
             for idx in range(len(bag_df)):
-                name = bag_df.loc[idx][0].split('/')[-1].split('.')[0] +'.csv'
+                name = bag_df.loc[idx][0].split('/')[-1].split('.')[0] +'.pt'
                 bag_df.iloc[idx,1] = ref_label[name]
-            bag_df.to_csv(os.path.join('datasets', args.dataset, item.split(os.path.sep)[2]+'.csv'), index=False)
-            all_df.append(bag_df)
-    elif '10p_C' in args.dataset:
-        bags_csv='datasets/Camelyon16/Camelyon16.csv'
-        df = pd.read_csv(bags_csv)
-        ref_label = {}
-        for idx in range(len(df)):
-            name = df.loc[idx][0].split('/')[-1].split('.')[0] +'.csv'
-            label= df.loc[idx][1]
-            ref_label[name] = label
-        for i, item in enumerate(n_classes):
-            bag_csvs = glob.glob(os.path.join(item, '*.csv'))
-            bag_df = pd.DataFrame(bag_csvs)
-            bag_df['label'] = i
-            for idx in range(len(bag_df)):
-                name = bag_df.loc[idx][0].split('/')[-1].split('.')[0] +'.csv'
-                bag_df.iloc[idx,1] = ref_label[name]
-            bag_df.to_csv(os.path.join('datasets', args.dataset, item.split(os.path.sep)[2]+'.csv'), index=False)
+            bag_df.to_csv(os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets', args.dataset, item.split(os.path.sep)[2]+'.csv'), index=False)
             all_df.append(bag_df)
     elif 'tcga' in args.dataset:
-        bags_csv='datasets/tcga-dataset/TCGA.csv'
+        bags_csv='/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets/tcga-dataset/TCGA.csv'
         df = pd.read_csv(bags_csv)
         for idx in range(len(df)):
             df.iloc[idx,0] =  os.path.join(feats_path, df.iloc[idx,0])
-        
-        all_df.append(df)
-    elif '10p_T' in args.dataset:
-        bags_csv='/remote-home/share/songyicheng/10p_datasets/10p_TCGA.csv'
-        df = pd.read_csv(bags_csv)
-        for idx in range(len(df)):
-            df.iloc[idx,0] =  os.path.join(feats_path, df.iloc[idx,0])
-        
         all_df.append(df)
     elif 'brca' in args.dataset:
         bag_csvs = '/remote-home/share/songyicheng/brca_dataset/BRCA.csv'
         df = pd.read_csv(bag_csvs)
         for idx in range(len(df)):
-            df.iloc[idx, 0] = os.path.join(feats_path,'brca_dataset', df.iloc[idx, 0].split('.')[0] + '.csv')
-        
-        all_df.append(df)
-    elif '10p_B' in args.dataset:
-        bag_csvs = '/remote-home/share/songyicheng/10p_datasets/10p_BRCA.csv'
-        df = pd.read_csv(bag_csvs)
-        for idx in range(len(df)):
-            df.iloc[idx, 0] = os.path.join(feats_path,'brca_dataset', df.iloc[idx, 0] + '.csv')
-        
+            df.iloc[idx, 0] = os.path.join(feats_path,'brca_dataset', df.iloc[idx, 0].split('.')[0] + '.pt')
         all_df.append(df)
 
     
     bags_path = pd.concat(all_df, axis=0, ignore_index=True)
-    # bags_path = shuffle(bags_path)
-    bags_path.to_csv(os.path.join('datasets', args.dataset, args.dataset+'.csv'), index=False)
+    bags_path.to_csv(os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets', args.dataset, args.dataset+'.csv'), index=False)
     
 if __name__ == '__main__':
     main()

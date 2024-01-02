@@ -27,7 +27,7 @@ import json
 torch.multiprocessing.set_sharing_strategy('file_system')
 import os
 
-
+os.environ['TMPDIR'] = '/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/tmp'
 class Unitopatho(Dataset):
     def __init__(self,fold,database=None):
         super(Unitopatho).__init__()
@@ -57,24 +57,26 @@ class BagDataset(Dataset):
     def __init__(self,train_path, args, database=None, return_slide_index=False):
         super(BagDataset).__init__()
         self.train_path = train_path
-        # self.csv_file_df = csv_file_df
         self.args = args
         self.database = database
         self.return_slide_index = return_slide_index
 
     def get_bag_feats(self,csv_file_df, args):
-        if args.dataset == 'TCGA-lung-default':
-            feats_csv_path = 'datasets/tcga-dataset/tcga_lung_data_feats/' + csv_file_df.iloc[0].split('/')[1] + '.csv'
-        elif args.dataset.startswith('tcga'):
-            feats_csv_path = os.path.join('datasets',args.dataset,'data_tcga_lung_tree' ,csv_file_df.iloc[0].split('/')[-1] + '.csv')
+        if args.dataset.startswith('tcga'):
+            feats_csv_path = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets',args.dataset,'data_tcga_lung_tree' ,csv_file_df.iloc[0].split('/')[-1] + '.pt')
         elif args.dataset.startswith('4ktcga'):
-            feats_csv_path = os.path.join('/remote-home/share/songyicheng/HIPT_datasets',args.dataset,'tcga_4096' ,csv_file_df.iloc[0].split('/')[-1] + '.csv')
+            feats_csv_path = os.path.join('/remote-home/share/songyicheng/HIPT_datasets',args.dataset,'tcga_4096' ,csv_file_df.iloc[0].split('/')[-1] + '.pt')
         elif args.dataset.startswith('4kbrca'):
-            feats_csv_path = os.path.join('/remote-home/share/songyicheng/HIPT_datasets',args.dataset,'brca_4096' ,csv_file_df.iloc[0].split('/')[-1] + '.csv')
+            feats_csv_path = os.path.join('/remote-home/share/songyicheng/HIPT_datasets',args.dataset,'brca_4096' ,csv_file_df.iloc[0].split('/')[-1] + '.pt')
         else:
             feats_csv_path = csv_file_df.iloc[0]
         if self.database is None:
-            df = pd.read_csv(feats_csv_path)
+            # 从.pt文件中读取数据
+            feats_tensor = torch.load(feats_csv_path)
+
+            # 将张量转换为Pandas DataFrame
+            df = pd.DataFrame(feats_tensor.numpy())
+            # df = pd.read_csv(feats_csv_path)
             feats = shuffle(df).reset_index(drop=True)
             feats = feats.to_numpy()
             label = np.zeros(args.num_classes)
@@ -106,15 +108,6 @@ class BagDataset(Dataset):
             return  label, feats, idx
         else:
             return  label, feats
-        # feats = self.dropout_patches(feats, self.args.dropout_patch)
-        # print(label, feats)
-        # bag_label = torch.tensor(np.array(label))
-        # bag_feats = torch.tensor(np.array(feats)).float()
-        # # print(bag_label, bag_feats)
-        # # print('before', bag_feats.shape)
-        
-        # # print('after',bag_label.shape,bag_feats.shape)
-        # return bag_label, bag_feats
         
     def __len__(self):
         return len(self.train_path)
@@ -137,7 +130,7 @@ class BagDataset_online(Dataset):
         if args.dataset == 'TCGA-lung-default':
             feats_csv_path = 'datasets/tcga-dataset/tcga_lung_data_feats/' + csv_file_df.iloc[0].split('/')[1] + '.csv'
         elif args.dataset.startswith('tcga'):
-            feats_csv_path = os.path.join('datasets',args.dataset,'data_tcga_lung_tree' ,csv_file_df.iloc[0].split('/')[-1] + '.csv')
+            feats_csv_path = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets',args.dataset,'data_tcga_lung_tree' ,csv_file_df.iloc[0].split('/')[-1] + '.csv')
         else:
             feats_csv_path = csv_file_df.iloc[0]
         split = feats_csv_path.split('/')[-2].split('_')[0]
@@ -152,7 +145,6 @@ class BagDataset_online(Dataset):
                 feats = self.encoder(patches)
                 feats = feats.cpu().numpy()
                 feats_list.extend(feats)
-                # print(iteration)
         label = np.zeros(args.num_classes)
         if args.num_classes==1:
             label[0] = csv_file_df.iloc[1]
@@ -174,15 +166,6 @@ class BagDataset_online(Dataset):
     def __getitem__(self, idx):
         label, feats = self.get_bag_feats(self.train_path.iloc[idx], self.args)
         return  label, feats
-        # feats = self.dropout_patches(feats, self.args.dropout_patch)
-        # print(label, feats)
-        # bag_label = torch.tensor(np.array(label))
-        # bag_feats = torch.tensor(np.array(feats)).float()
-        # # print(bag_label, bag_feats)
-        # # print('before', bag_feats.shape)
-        
-        # # print('after',bag_label.shape,bag_feats.shape)
-        # return bag_label, bag_feats
         
     def __len__(self):
         return len(self.train_path)
@@ -225,8 +208,6 @@ class SimpleBagDataset():
         img = Image.open(img).convert('RGB')
         if self.transform:
             img = self.transform(img)
-        # if img.size[0] != 256:
-        #     print(temp_path, img.size)
         sample = {'input': img}
         
         
@@ -253,33 +234,19 @@ def train(train_df, milnet, criterion, optimizer, args, log_path, epoch=0):
         bag_label = bag_label.cuda()
         bag_feats = bag_feats.cuda()
         bag_feats = bag_feats.view(-1, args.feats_size)  # n x feat_dim
-        #print(bag_feats.shape)
         optimizer.zero_grad()
         if args.model == 'dsmil':
             ins_prediction, bag_prediction, attention, atten_B= milnet(bag_feats)
-            max_prediction, _ = torch.max(ins_prediction, 0)  
-            # print(bag_prediction, max_prediction,bag_label.long())      
+            max_prediction, _ = torch.max(ins_prediction, 0)      
             bag_loss = criterion(bag_prediction.view(1, -1), bag_label.view(1, -1))
             max_loss = criterion(max_prediction.view(1, -1), bag_label.view(1, -1))
-            # bag_loss = criterion(bag_prediction, bag_label.long())
-            # max_loss = criterion(max_prediction.view(1, -1), bag_label.long())
             loss = 0.5*bag_loss + 0.5*max_loss
-
         elif args.model in ['abmil', 'max', 'mean']:
-            
             bag_prediction, _, attention = milnet(bag_feats)
             loss =  criterion(bag_prediction.view(1, -1), bag_label.view(1, -1))
-            # bag_prediction, _, attention = milnet(bag_feats)
-            # loss =  criterion(bag_prediction.view(1, -1), bag_label.view(1, -1))
-            # bag_prediction, _, attention, bag_prediction_r = milnet(bag_feats)
-            # loss1 =  criterion(bag_prediction.view(1, -1), bag_label.view(1, -1))
-            # loss2 = criterion(bag_prediction_r.view(1, -1), bag_label.view(1, -1))
-            # # print(loss1, loss2)
-            # loss = loss1*0.5 +loss2*0.5
         elif args.model in ['max_pooling', 'mean_pooling']:
             bag_prediction = milnet(bag_feats)
             loss = criterion(bag_prediction.view(1, -1), bag_label.view(1, -1))
-
         elif args.model == 'clam':
             if args.num_classes == 2:
                 logits, bag_prediction, Y_hat, A_raw, results_dict, attention = milnet(bag_feats, bag_label, instance_eval=True)
@@ -300,23 +267,7 @@ def train(train_df, milnet, criterion, optimizer, args, log_path, epoch=0):
         elif args.model == 'hipt':
             logits, bag_prediction, Y_hat, attention = milnet(bag_feats)
             loss = criterion(logits.view(1, -1), bag_label.view(1, -1).argmax(dim=-1)) / 32
-
-            
-        '''
-        if args.prompt_type is not None:
-                # print(attention.shape)
-                print('\n patches attention max:{:.5f}, min:{:.5f}, mean:{:.5f}'.format(attention[:1000].max().item(), attention[:1000].min().item(), attention[:1000].mean().item()))
-                print('\n prompt attention max:{:.5f}, min:{:.5f}, mean:{:.5f}'.format(attention[1000:].max().item(), attention[1000:].min().item(), attention[1000:].mean().item()))
-        else:
-            # print(attention)
-            print('\n attention max:{:.5f}, min:{:.5f}, mean:{:.5f}'.format(attention.max().item(), attention.min().item(), attention.mean().item()))
-        '''
-        # if not args.lp and not args.prompt_type:
-            
-        #     sys.stdout.write('\r attention max:{:.5f}, min:{:.5f}, mean:{:.5f}'.format(attention.max().item(), attention.min().item(), attention.mean().item()))
-        # if  args.prompt_type == 'aprompt':
-        #     sys.stdout.write('\r attention max:{:.5f}, min:{:.5f}, mean:{:.5f}'.format(attention.max().item(), attention.min().item(), attention.mean().item()))
-        
+       
         loss.backward()
         # cancel gradients for the confounders 
         if args.c_learn:
@@ -352,7 +303,6 @@ def test(test_df, milnet, criterion, optimizer, args, log_path, epoch):
     total_loss = 0
     test_labels = []
     test_predictions = []
-    Tensor = torch.cuda.FloatTensor
     with torch.no_grad():
         for i,(bag_label,bag_feats) in enumerate(test_df):
             label = bag_label.numpy()
@@ -364,11 +314,8 @@ def test(test_df, milnet, criterion, optimizer, args, log_path, epoch):
                 max_prediction, _ = torch.max(ins_prediction, 0)
                 bag_loss = criterion(bag_prediction.view(1, -1), bag_label.view(1, -1))
                 max_loss = criterion(max_prediction.view(1, -1), bag_label.view(1, -1))
-                # bag_loss = criterion(bag_prediction, bag_label.long())
-                # max_loss = criterion(max_prediction.view(1, -1), bag_label.long())
                 loss = 0.5*bag_loss + 0.5*max_loss
             elif args.model in ['abmil', 'max', 'mean']:
-                # bag_prediction, _, _ ,_ =  milnet(bag_feats)
                 bag_prediction, _, _ =  milnet(bag_feats)
                 max_prediction = bag_prediction
                 loss = criterion(bag_prediction.view(1, -1), bag_label.view(1, -1))
@@ -409,18 +356,6 @@ def test(test_df, milnet, criterion, optimizer, args, log_path, epoch):
             else: test_predictions.extend([(0.0*torch.sigmoid(max_prediction)+1.0*torch.sigmoid(bag_prediction)).squeeze().cpu().numpy()])
     test_labels = np.array(test_labels)
     test_predictions = np.array(test_predictions)
-
-    #Unreasonable as bce loss，not softmax
-    # y_pred, y_true = inverse_convert_label(test_predictions), inverse_convert_label(test_labels)
-    # p = precision_score(y_true, y_pred, average='macro')
-    # r = recall_score(y_true, y_pred, average='macro')
-    # acc = accuracy_score(y_true, y_pred)
-    # print('\n argmax: Pre:{:.2f},Rec:{:.2f}, Accuracy:{:.2f}'.format(p*100, r*100, acc*100))
-
-    # softmax training  conversion
-    # print(test_predictions)
-    # y_pred, y_true = convert_label_onehot(test_predictions, args.num_classes), convert_label(test_labels, args.num_classes)
-    # print(test_labels, y_true)
 
     # fixed threshold = 0.5
     auc_value, _, thresholds_optimal = multi_label_roc(test_labels, test_predictions, args.num_classes, pos_label=1)
@@ -568,13 +503,13 @@ def main():
     arg_dict = vars(args)
     dict_json = json.dumps(arg_dict)
     if args.lp:
-        save_path = os.path.join('weights', datetime.date.today().strftime("%m%d%Y"), str(args.dataset)+'_'+str(args.model)+'_'+str(args.agg )+'_lp')
+        save_path = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/weights', datetime.date.today().strftime("%m%d%Y"), str(args.dataset)+'_'+str(args.model)+'_'+str(args.agg )+'_lp')
     elif args.prompt_type:
-        save_path = os.path.join('weights', datetime.date.today().strftime("%m%d%Y"), str(args.dataset)+'_'+str(args.model)+'_'+str(args.agg )+'_'+str(args.prompt_type))
+        save_path = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/weights', datetime.date.today().strftime("%m%d%Y"), str(args.dataset)+'_'+str(args.model)+'_'+str(args.agg )+'_'+str(args.prompt_type))
     elif args.c_path:
-        save_path = os.path.join('weights_', datetime.date.today().strftime("%m%d%Y"), str(args.dataset)+'_'+str(args.model)+'_'+str(args.agg )+'_c_path')
+        save_path = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/weights', datetime.date.today().strftime("%m%d%Y"), str(args.dataset)+'_'+str(args.model)+'_'+str(args.agg )+'_c_path')
     else:
-        save_path = os.path.join('weights_', datetime.date.today().strftime("%m%d%Y"), str(args.dataset)+'_'+str(args.model)+'_'+str(args.agg )+'_fulltune')
+        save_path = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/weights', datetime.date.today().strftime("%m%d%Y"), str(args.dataset)+'_'+str(args.model)+'_'+str(args.agg )+'_fulltune')
     run = len(glob.glob(os.path.join(save_path, '*')))
     save_path = os.path.join(save_path, str(run))
     os.makedirs(save_path, exist_ok=True)
@@ -627,52 +562,6 @@ def main():
                         log_txt.write('\n Training {}'.format(name))
 
 
-    elif args.prompt_type:
-        print('*********prompting**********')
-        if args.model == 'dsmil':
-        # definition of models
-        #import dsmil as mil
-            import prompt_dsmil as mil
-            i_classifier = mil.FCLayer(in_size=args.feats_size, out_size=args.num_classes).cuda()
-            if args.prompt_type == 'ssamm':
-                b_classifier = mil.BClassifier(input_size=args.feats_size, output_class=args.num_classes, 
-                    dropout_v=args.dropout_node, nonlinear=args.non_linearity, prompt_type=args.prompt_type, static=args.static).cuda()
-            else:
-                b_classifier = mil.BClassifier(input_size=args.feats_size, output_class=args.num_classes, dropout_v=args.dropout_node, 
-                    nonlinear=args.non_linearity, prompt_type=args.prompt_type, static=None).cuda()
-            milnet = mil.PromptMILNet(i_classifier, b_classifier, args.prompt_type).cuda()
-            if args.prompt_type:
-                for k,v in milnet.named_parameters():
-                    if ('prompt' in k) or ('fcc' in k) or ('fc' in k):
-                        v.requires_grad = True
-                        print('training', k)
-                        with open(log_path,'a+') as log_txt:
-                            log_txt.write('\n Training {}'.format(k))
-                        
-                    else:
-                        v.requires_grad = False
-                        print('Freezing', k)
-                        with open(log_path,'a+') as log_txt:
-                            log_txt.write('\n Not training {}'.format(k))
-        elif args.model == 'abmil':
-            import prompt_abmil as mil
-            if args.prompt_type == 'ssamm':
-                milnet = mil.PromptAttention(in_size=args.feats_size, out_size=args.num_classes, prompt_type=args.prompt_type, static=args.static).cuda()
-            else:
-                milnet = mil.PromptAttention(in_size=args.feats_size, out_size=args.num_classes, prompt_type=args.prompt_type, static=None).cuda()
-            if args.prompt_type:
-                for k,v in milnet.named_parameters():
-                    if ('prompt' in k) or ('classifier' in k) :
-                        v.requires_grad = True
-                        print('training', k)
-                        with open(log_path,'a+') as log_txt:
-                            log_txt.write('\n Training {}'.format(k))
-                        
-                    else:
-                        v.requires_grad = False
-                        print('Freezing', k)
-                        with open(log_path,'a+') as log_txt:
-                            log_txt.write('\n Not training {}'.format(k))
     else:
         print('*********Full tuning**********')
         if args.model == 'dsmil':
@@ -690,23 +579,15 @@ def main():
         elif args.model == 'mean_pooling':
             from mean_pooling import mean_pooling
             milnet = mean_pooling(input_size=args.feats_size).cuda()
-        elif args.model == 'max':
-            from Models.SimpleNet.MaxNet import MaxNet
-            milnet = MaxNet(in_size=args.feats_size, out_size=args.num_classes,confounder_path=args.c_path, \
-                confounder_learn=args.c_learn, confounder_dim=args.c_dim, confounder_merge=args.c_merge).cuda()
-        elif args.model == 'mean':
-            from Models.SimpleNet.MeanNet import MeanNet
-            milnet = MeanNet(in_size=args.feats_size, out_size=args.num_classes,confounder_path=args.c_path, \
-                confounder_learn=args.c_learn, confounder_dim=args.c_dim, confounder_merge=args.c_merge).cuda() 
         elif args.model == 'clam':
-            from Models.CLAM import clam as mil
+            from clam import CLAM_SB as CLAM_SB
             assert args.num_classes == 2
-            milnet = mil.CLAM_SB(in_size=args.feats_size, n_classes=args.num_classes).cuda()
+            milnet = CLAM_SB(in_size=args.feats_size, n_classes=args.num_classes).cuda()
             milnet.relocate()
         elif args.model == 'hipt':
-            from Models.HIPT import hipt as mil
+            from hipt import HIPT_GP_FC as HIPT_GP_FC
             assert args.num_classes == 2
-            milnet = mil.HIPT_GP_FC(path_input_dim = args.feats_size, n_classes = args.num_classes).cuda()
+            milnet = HIPT_GP_FC(path_input_dim = args.feats_size, n_classes = args.num_classes).cuda()
             milnet.relocate()
 
         for name, _ in milnet.named_parameters():
@@ -714,98 +595,6 @@ def main():
                 with open(log_path,'a+') as log_txt:
                     log_txt.write('\n Training {}'.format(name))
 
-
-    try:
-        if args.model == 'dsmil':
-            if  args.agg  == 'tcga':
-                if args.feats_size == 512:
-                    # load_path = 'pretrained_weights/tcga_r18_dsmil.pth' 
-                    # load_path = 'weights_/10292022/tcga_Img_dsmil.pth'
-                    # load_path = 'weights_/10302022/tcga_Img_dsmil_no_fulltune/0/1.pth'
-                    load_path = 'weights_/10312022/tcga_Img_nor_dsmil_no_fulltune/1/2.pth'
-                elif args.feats_size == 768:
-                    # load_path = 'pretrained_weights/tcga_ctran_dsmil.pth'
-                    # load_path = 'weights_/10292022/tcga_CTran_dsmil.pth'
-                    load_path = 'weights_/10302022/tcga_CTran_dsmil_no_fulltune/0/1.pth'
-                elif args.feats_size == 384:
-                    # load_path = 'pretrained_weights/tcga_vit_dsmil.pth'
-                    load_path = 'weights_/10292022/tcga_Vit_dsmil.pth'
-                    # load_path = 'weights_/10302022/tcga_Vit_dsmil_no_fulltune/0/1.pth'
-                else:
-                    raise NotImplementedError
-            elif  args.agg  == 'c16':
-                if args.feats_size == 512:  
-                    # load_path = 'pretrained_weights/camleyon16_r18_dsmil.pth'
-                    # load_path = 'weights_/10292022/Camelyon16_Img_dsmil.pth'
-                    # load_path = 'weights_/10302022/Camelyon16_Img_dsmil_no_fulltune/0/1.pth'
-                    load_path = 'weights_/10312022/Camelyon16_Img_nor_dsmil_no_fulltune/1/2.pth'
-                elif args.feats_size == 768:
-                    # load_path = 'pretrained_weights/camleyon16_ctran_dsmil.pth'
-                    # load_path = 'weights_/10292022/Camelyon16_CTran_dsmil.pth'
-                    load_path = 'weights_/10302022/Camelyon16_CTran_dsmil_no_fulltune/0/1.pth'
-                elif args.feats_size == 384:
-                    # load_path = 'pretrained_weights/camleyon16_vit_dsmil.pth'
-                    load_path = 'weights_/10292022/Camleyon16_Vit_dsmil.pth'
-            else:
-                raise NotImplementedError
-            state_dict_weights = torch.load(load_path) 
-            del state_dict_weights['i_classifier.fc.0.weight']
-            del state_dict_weights['i_classifier.fc.0.bias']
-            del state_dict_weights['b_classifier.fcc.weight']
-            del state_dict_weights['b_classifier.fcc.bias']
-            msg = milnet.load_state_dict(state_dict_weights, strict=False)
-            print("***********loading init from {}*******************".format(load_path))
-            with open(log_path,'a+') as log_txt:
-                log_txt.write('\n loading init from:'+str(load_path))
-            print(state_dict_weights.keys())
-            print(msg.missing_keys)
-        elif args.model == 'abmil':
-            if args.agg  == 'tcga':
-                if args.feats_size == 512:
-                    # load_path = 'pretrained_weights/tcga_r18_abmil.pth' 
-                    # load_path = 'weights_/10292022/tcga_Img_abmil.pth'
-                    # load_path = 'weights_/10302022/tcga_Img_abmil_no_fulltune/0/1.pth'
-                    load_path = 'weights_/10312022/tcga_Img_nor_abmil_no_fulltune/1/2.pth'
-                    
-                elif args.feats_size == 768:
-                    # load_path = 'pretrained_weights/tcga_ctran_abmil.pth'
-                    # load_path = 'weights_/10292022/tcga_CTran_abmil.pth'
-                    load_path = 'weights_/10302022/tcga_CTran_abmil_no_fulltune/0/1.pth'
-                elif args.feats_size == 384:
-                    # load_path = 'pretrained_weights/tcga_vit_abmil.pth'
-                    # load_path = 'weights_/10292022/tcga_Vit_abmil.pth'
-                    load_path = 'weights/11012022/tcga_Vit_abmil_no_fulltune/1/2.pth'
-                    # load_path = 'weights_/10302022/tcga_Vit_abmil_no_fulltune/0/1.pth'
-            elif args.agg  == 'c16':
-                if args.feats_size == 512:
-                    # load_path = 'pretrained_weights/camleyon16_r18_abmil.pth'
-                    # load_path = 'weights_/10292022/Camleyon16_Img_abmil.pth'
-                    # load_path = 'weights_/10302022/Camelyon16_Img_abmil_no_fulltune/0/1.pth'
-                    load_path = 'weights_/10312022/Camelyon16_Img_nor_abmil_no_fulltune/1/2.pth'
-                    
-                elif args.feats_size == 768:
-                    # load_path = 'pretrained_weights/camleyon16_ctran_abmil.pth'
-                    # load_path = 'weights_/10292022/Camelyon16_CTran_abmil.pth'
-                    load_path = 'weights_/10302022/Camelyon16_CTran_abmil_no_fulltune/0/1.pth'
-                elif args.feats_size == 384:
-                    # load_path = 'pretrained_weights/camleyon16_vit_abmil.pth'
-                    # load_path = 'weights_/10292022/Camelyon16_Vit_abmil.pth'
-                    load_path = 'weights/11012022/Camelyon16_Vit_abmil_no_fulltune/1/2.pth'
-            else:
-                raise NotImplementedError
-            state_dict_weights = torch.load(load_path)
-            del state_dict_weights['classifier.weight']
-            del state_dict_weights['classifier.bias']
-            msg = milnet.load_state_dict(state_dict_weights, strict=False)
-            print("***********loading init from {}*******************".format(load_path))
-            with open(log_path,'a+') as log_txt:
-                log_txt.write('\n loading init from:'+str(load_path))
-            print(state_dict_weights.keys())
-            print(msg.missing_keys)
-    except:
-        print('Can not transfer w\o weights')
-        with open(log_path,'a+') as log_txt:
-                log_txt.write('\n {},{}, Can not transfer w\o weights'.format(args.dataset, args.agg ))
 
    
     
@@ -816,39 +605,12 @@ def main():
     else:
         database = None
 
-    if  args.dataset == 'Unitopatho':
-        trainset =  Unitopatho('train', database)
-        train_loader = DataLoader(trainset,1, shuffle=True, num_workers=16)
-        testset =  Unitopatho('test', database)
-        test_loader = DataLoader(testset,1, shuffle=False, num_workers=16)
-        # loss_weight = torch.tensor([[ 31.,  13.,  17., 100.,  13.,  30.]]).cuda()
-        # # loss_weight= torch.sqrt((loss_weight.sum() -loss_weight)/loss_weight)
-        # loss_weight= (loss_weight.sum() -loss_weight)/loss_weight
-        loss_weight = torch.tensor([[ 1.,  1,  1., 1.,  1.,  1.]]).cuda()
 
-    elif args.dataset == 'TCGA-lung-default':
-        if args.n_shot:
-            print('Few-Shot Learning with {} Shots in Seed{}'.format(args.n_shot, args.fs_seed))
-            train_csv = 'datasets/tcga-dataset/tcga_fewshot/train_{}shot_seed{}.csv'.format(args.n_shot, args.fs_seed)
-            test_csv = 'datasets/tcga-dataset/tcga_fewshot/val_{}shot_seed{}.csv'.format(args.n_shot, args.fs_seed)
-            train_path = pd.read_csv(train_csv)
-            test_path = pd.read_csv(test_csv)
-        else:
-            bags_csv = 'datasets/tcga-dataset/TCGA.csv'
-            bags_path = pd.read_csv(bags_csv)
-            train_path = bags_path.iloc[0:int(len(bags_path)*0.8), :]
-            test_path = bags_path.iloc[int(len(bags_path)*0.8):, :]
-        loss_weight = torch.tensor([[ 1, 1]]).cuda()
-
-    elif args.dataset.startswith("tcga_subset"):
-        bags_csv = os.path.join('datasets', args.dataset, args.dataset+'.csv')
+    if args.dataset.startswith("tcga_subset"):
+        bags_csv = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets', args.dataset, args.dataset+'.csv')
         bags_path = pd.read_csv(bags_csv)
         if args.shuffle_idx == -1:
             shuffle_idx = None
-        else:
-            assert args.shuffle_idx in [0,1,2]
-            shuffle_idx = np.load('Notebooks/indices{}.npy'.format(args.shuffle_idx))
-            # bags_csv = os.path.join('datasets', args.dataset, args.dataset+'_shuffle'+str(args.shuffle_idx)+'.csv')
         if shuffle_idx:
             bags_path = bags_path.iloc[shuffle_idx, :]
         train_path = bags_path.iloc[0:200, :]
@@ -856,71 +618,27 @@ def main():
         loss_weight = torch.tensor([[ 1, 1]]).cuda()
    
     elif args.dataset.startswith("tcga"):
-        bags_csv = os.path.join('datasets', args.dataset, args.dataset+'.csv')
+        bags_csv = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets', args.dataset, args.dataset+'.csv')
         bags_path = pd.read_csv(bags_csv)
         if args.shuffle_idx == -1:
             shuffle_idx = None
-        else:
-            assert args.shuffle_idx in [0,1,2]
-            shuffle_idx = np.load('Notebooks/indices{}.npy'.format(args.shuffle_idx))
-            # bags_csv = os.path.join('datasets', args.dataset, args.dataset+'_shuffle'+str(args.shuffle_idx)+'.csv')
         if shuffle_idx:
             bags_path = bags_path.iloc[shuffle_idx, :]
         train_path = bags_path.iloc[0:int(len(bags_path)*0.8), :]
         test_path = bags_path.iloc[int(len(bags_path)*0.8):, :]
         loss_weight = torch.tensor([[ 1, 1]]).cuda()
-    elif args.dataset.startswith("10p_T"):
-        bags_csv = os.path.join('datasets', args.dataset, args.dataset+'.csv')
-        bags_path = pd.read_csv(bags_csv)
-        if args.shuffle_idx == -1:
-            shuffle_idx = None
-        else:
-            assert args.shuffle_idx in [0,1,2]
-            shuffle_idx = np.load('Notebooks/indices{}.npy'.format(args.shuffle_idx))
-            # bags_csv = os.path.join('datasets', args.dataset, args.dataset+'_shuffle'+str(args.shuffle_idx)+'.csv')
-        if shuffle_idx:
-            bags_path = bags_path.iloc[shuffle_idx, :]
-        train_path = bags_path.iloc[0:82, :]
-        test_path = bags_path.iloc[82:, :]
-        loss_weight = torch.tensor([[ 1, 1]]).cuda()
     elif args.dataset.startswith('brca'):
-        bags_csv = os.path.join('datasets', args.dataset, args.dataset+'.csv')
+        bags_csv = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets', args.dataset, args.dataset+'.csv')
         bags_path = pd.read_csv(bags_csv)
         train_path = bags_path.iloc[0:656, :]
         test_path = bags_path.iloc[656:, :]
         loss_weight = torch.tensor([[ 1, 1]]).cuda()
-    elif args.dataset.startswith('10p_B'):
-        bags_csv = os.path.join('datasets', args.dataset, args.dataset+'.csv')
-        bags_path = pd.read_csv(bags_csv)
-        train_path = bags_path.iloc[0:65, :]
-        test_path = bags_path.iloc[65:, :]
-        loss_weight = torch.tensor([[ 1, 1]]).cuda()
-
     elif args.dataset.startswith('Camelyon16'):
         # bags_csv = os.path.join('datasets', args.dataset, args.dataset+'_off.csv') #offical train test
-        bags_csv = os.path.join('datasets', args.dataset, args.dataset+'.csv')
+        bags_csv = os.path.join('/remote-home/share/songyicheng/Code/SimMIL/aggregation/downstream/datasets', args.dataset, args.dataset+'.csv')
         bags_path = pd.read_csv(bags_csv)
         if args.shuffle_idx == -1:
             shuffle_idx = None
-        else:
-            assert args.shuffle_idx in [0,1,2]
-            shuffle_idx = np.load('Notebooks/C16_indices{}.npy'.format(args.shuffle_idx))
-            # bags_csv = os.path.join('datasets', args.dataset, args.dataset+'_shuffle'+str(args.shuffle_idx)+'.csv')
-        if shuffle_idx is not None:
-            bags_path = bags_path.iloc[shuffle_idx, :]
-        train_path = bags_path.iloc[129:, :]
-        test_path = bags_path.iloc[0:129, :]
-        loss_weight = torch.tensor([[1, 1]]).cuda()
-    elif args.dataset.startswith('10p_C'):
-        # bags_csv = os.path.join('datasets', args.dataset, args.dataset+'_off.csv') #offical train test
-        bags_csv = os.path.join('datasets', args.dataset, args.dataset+'.csv')
-        bags_path = pd.read_csv(bags_csv)
-        if args.shuffle_idx == -1:
-            shuffle_idx = None
-        else:
-            assert args.shuffle_idx in [0,1,2]
-            shuffle_idx = np.load('Notebooks/C16_indices{}.npy'.format(args.shuffle_idx))
-            # bags_csv = os.path.join('datasets', args.dataset, args.dataset+'_shuffle'+str(args.shuffle_idx)+'.csv')
         if shuffle_idx is not None:
             bags_path = bags_path.iloc[shuffle_idx, :]
         train_path = bags_path.iloc[129:, :]
@@ -929,14 +647,12 @@ def main():
     elif args.dataset.startswith('4ktcga'):
         bags_csv = os.path.join('/remote-home/share/songyicheng/HIPT_datasets', args.dataset, args.dataset + '.csv')
         bags_path = pd.read_csv(bags_csv)
-
         train_path = bags_path.iloc[0 : 717, : ]
         test_path = bags_path.iloc[717 : , : ]
         loss_weight = torch.tensor([[ 1, 1]]).cuda()
     elif args.dataset.startswith('4kbrca'):
         bags_csv = os.path.join('/remote-home/share/songyicheng/HIPT_datasets', args.dataset, args.dataset + '.csv')
         bags_path = pd.read_csv(bags_csv)
-
         train_path = bags_path.iloc[0 : 657 , : ]
         test_path = bags_path.iloc[657 : , : ]
         loss_weight = torch.tensor([[ 1, 1]]).cuda()
@@ -1037,9 +753,6 @@ def main():
                   (epoch, args.num_epochs, train_loss_bag, test_loss_bag, avg_score) + '|'.join('class-{}>>{}'.format(*k) for k in enumerate(aucs))) 
         sys.exit()
         
-    
-    
-    
     
     for epoch in range(1, args.num_epochs):
         start_time = time.time()

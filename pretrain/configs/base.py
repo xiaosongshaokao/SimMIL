@@ -8,6 +8,7 @@ model_names = sorted(name for name in models.__dict__
     and callable(models.__dict__[name]))
 model_names.append('CTrans')
 model_names.append('HIPT')
+model_names.append('ViT/S')
 
 class BaseParser(object):
     def __init__(self):

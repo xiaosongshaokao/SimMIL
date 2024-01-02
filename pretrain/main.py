@@ -28,6 +28,7 @@ from utils.misc import get_timestamp
 from utils.path import mkdir_or_exist
 
 # os.environ["CUDA_VISIBLE_DEVICES"] =  '1, 2, 3, 4'
+# os.environ['OMP_NUM_THREADS'] = '1'
 runner_dict = dict(lincls=LinClsRunner,
                    moco=MoCoRunner,
                    mt=MeanTeacherRunner,
